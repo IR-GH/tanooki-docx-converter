@@ -60,18 +60,9 @@ button:hover{filter:brightness(1.06)}
 button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 button:disabled{opacity:.5;cursor:default}
 .bar{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center}
-.pv{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.pane{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0;display:grid;grid-template-rows:auto 1fr}
-.pane h3{margin:0;padding:10px 14px;border-bottom:1px solid var(--line);font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
-.pane .body{padding:12px 14px;max-height:26rem;overflow:auto;display:grid;gap:10px;align-content:start}
-.src{font:12px/1.55 var(--mono);display:grid;gap:3px}
-.src div{white-space:pre-wrap;word-break:break-word}
-.src .grp{padding-left:8px;border-left:2px solid var(--line)}
-.src .grp.alt{border-left-color:var(--accent)}
-.tag{font:500 11px/1 var(--mono);padding:3px 6px;border-radius:3px;background:var(--well);color:var(--muted);letter-spacing:.04em}
 .note{color:var(--muted);font-size:13px;margin:0}
 .note code{font-family:var(--mono);font-size:12px}
-@media (max-width:640px){.fmt,.pv{grid-template-columns:1fr}.row{grid-template-columns:1fr}.row .act{grid-row:auto;grid-column:1}}
+@media (max-width:640px){.fmt{grid-template-columns:1fr}.row{grid-template-columns:1fr}.row .act{grid-row:auto;grid-column:1}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -109,6 +100,8 @@ button:disabled{opacity:.5;cursor:default}
     <label><input type="checkbox" id="frames"> Keep frames in the timecode (<code>[01:00:08:00]</code> instead of <code>[01:00:08]</code>)</label>
   </div>
 
+  <p class="note">Recognised lines look like <code>HH:MM:SS:FF  &lt;label&gt;  &lt;Speaker&gt; - &lt;text&gt;</code> (drop-frame <code>;</code> works too). Title lines above the first timecode are kept. Any other paragraph is kept as it is.</p>
+
   <section id="results" hidden>
     <div class="bar">
       <h2>Formatted</h2>
@@ -117,14 +110,6 @@ button:disabled{opacity:.5;cursor:default}
     <ul class="queue" id="queue"></ul>
   </section>
 
-  <section>
-    <div class="bar"><h2 id="pvtitle">Preview</h2><span class="tag" id="pvtag">Example</span></div>
-    <div class="pv">
-      <div class="pane"><h3><span>Source lines</span><span id="pvin"></span></h3><div class="body src" id="pvsrc"></div></div>
-      <div class="pane"><h3><span>Formatted</span><span id="pvout"></span></h3><div class="body doc" id="pvdst"></div></div>
-    </div>
-    <p class="note">Recognised lines look like <code>HH:MM:SS:FF  &lt;label&gt;  &lt;Speaker&gt; - &lt;text&gt;</code> (drop-frame <code>;</code> works too). Title lines above the first timecode are kept. Any other paragraph is kept as it is.</p>
-  </section>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -315,53 +300,6 @@ button:disabled{opacity:.5;cursor:default}
 
   function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
 
-  function renderPreview(title, isExample, header, blocks, srcLines){
-    $('pvtitle').textContent = title; $('pvtag').hidden = !isExample;
-    var src = $('pvsrc'), dst = $('pvdst'); src.textContent = ''; dst.textContent = '';
-    header.forEach(function(h){ if (h.trim()) { src.appendChild(el('div', null, h)); dst.appendChild(el('div', null, h)); } });
-    var shown = blocks.slice(0, 40), k = 0;
-    shown.forEach(function(b, i){
-      var g = el('div', 'grp');
-      srcLines.slice(k, k + b.count).forEach(function(l){ g.appendChild(el('div', null, l)); });
-      k += b.count; src.appendChild(g);
-      var p = el('div'); p.appendChild(el('b', null, b.speaker)); p.appendChild(document.createTextNode(' '));
-      p.appendChild(el('span', 'tc', '[' + b.tc + ']')); p.appendChild(document.createTextNode(' ' + b.text));
-      dst.appendChild(p);
-    });
-    $('pvin').textContent = k + ' lines'; $('pvout').textContent = shown.length + ' lines' + (blocks.length > shown.length ? ' of ' + blocks.length : '');
-  }
-
-  // Example preview so the page shows what it does before anything is dropped.
-  (function example(){
-    var lines = [
-      '01:00:04:12    Transcribed    Contributor 1 - Morning. Is this the right room?',
-      '01:00:06:03    Transcribed    Contributor 2 - It is, yeah. Come in.',
-      '01:00:07:20    Transcribed    Contributor 2 - Grab a seat anywhere.',
-      "01:00:10:08    Transcribed    Contributor 1 - Thanks. I wasn't sure if I'd missed the start.",
-      '01:00:14:15    Transcribed    Contributor 2 - No, no. We\'re still waiting on a couple of people.',
-      '01:00:18:01    Transcribed    Contributor 3 - Sorry, sorry. Traffic.',
-      '01:00:20:22    Transcribed    Contributor 2 - You\'re fine.',
-      '01:00:22:10    Transcribed    Contributor 2 - Right, shall we get going?'
-    ];
-    function enc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,'&apos;'); }
-    var xml = '<w:document><w:body>' + ['Example Episode','','EXAMPLE_CARD_A01',''].concat(lines).map(function(t){
-      return '<w:p><w:r><w:t xml:space="preserve">' + enc(t) + '</w:t></w:r></w:p>'; }).join('') + '</w:body></w:document>';
-    function draw(){ var r = TM.convertDocumentXml(xml, { frames: $('frames').checked }); renderPreview('Preview', true, r.header, r.blocks, lines); }
-    draw(); window.__drawExample = draw;
-  })();
-
-  function srcLinesOf(file){
-    return JSZip.loadAsync(file).then(function(z){ return z.file('word/document.xml').async('string'); }).then(function(xml){
-      var out = [], rx = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, m;
-      while ((m = rx.exec(xml))) {
-        var t = ''; m[0].replace(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g, function(_, s){ t += s; });
-        t = t.replace(/&apos;/g,"'").replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
-        if (/^\d{1,2}:\d{2}:\d{2}[:;.]\d{2,3}\s/.test(t.trim())) out.push(t.trim());
-      }
-      return out;
-    });
-  }
-
   function addRow(item){
     var li = el('li', 'row ' + (item.error ? 'err' : 'ok'));
     li.appendChild(el('div', 'name', item.error ? item.name : item.outName));
@@ -371,18 +309,12 @@ button:disabled{opacity:.5;cursor:default}
     li.appendChild(el('div', 'meta', meta));
     if (!item.error) {
       var act = el('div', 'act');
-      var pv = el('button', null, 'Preview'); pv.type = 'button';
-      pv.onclick = function(){ showFile(item); };
       var dl = el('button', 'primary', 'Download'); dl.type = 'button';
       dl.onclick = function(){ save(item.outName, item.file); };
-      act.appendChild(pv); act.appendChild(dl); li.appendChild(act);
+      act.appendChild(dl); li.appendChild(act);
     }
     $('queue').appendChild(li);
   }
-  function showFile(item){
-    srcLinesOf(item.source).then(function(lines){ renderPreview(item.outName, false, item.header, item.blocks, lines); });
-  }
-
   function handle(files){
     files = Array.prototype.filter.call(files, function(f){ return /\.docx$/i.test(f.name); });
     if (!files.length) return;
@@ -393,7 +325,6 @@ button:disabled{opacity:.5;cursor:default}
         return TM.convertDocx(JSZip, f, { frames: frames }).then(function(r){
           var item = { name: f.name, outName: TM.outputName(f.name), file: r.file, stats: r.stats, blocks: r.blocks, header: r.header, source: f };
           results.push(item); addRow(item);
-          if (results.length === 1) showFile(item);
         }).catch(function(e){ addRow({ name: f.name, error: (e && e.message) || 'Could not read this file.' }); });
       });
     }, Promise.resolve()).then(function(){ $('all').hidden = results.length < 2; });
@@ -404,7 +335,7 @@ button:disabled{opacity:.5;cursor:default}
   ['dragenter','dragover'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
   ['dragleave','drop'].forEach(function(t){ drop.addEventListener(t, function(){ drop.classList.remove('over'); }); });
   drop.addEventListener('drop', function(e){ e.preventDefault(); handle(e.dataTransfer.files); });
-  $('frames').addEventListener('change', function(){ if (!results.length) window.__drawExample(); });
+  $('frames').addEventListener('change', function(){ if (!results.length) return; var srcs = results.map(function(r){ return r.source; }); results = []; $('queue').textContent = ''; handle(srcs); });
 
   $('all').onclick = function(){
     var z = new JSZip();
