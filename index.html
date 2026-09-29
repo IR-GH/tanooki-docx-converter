@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Transcript Formatter</title>
+<meta name="description" content="Restyle line-per-utterance transcript .docx files into the speaker layout, line for line.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow working column — header, drop bay, file queue, then a before/after strip like a source/record monitor pair. */
+:root{
+  --bg:#f3f4f6; --panel:#ffffff; --fg:#16181d; --muted:#5d6370; --line:#d9dce3;
+  --accent:#c2410c; --accent-fg:#ffffff; --tc:#777777; --ok:#15803d; --err:#b91c1c; --well:#eceef2;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --doc:Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121418; --panel:#1b1e24; --fg:#e7e9ee; --muted:#9aa1ae; --line:#2e333c;
+  --accent:#f0793d; --accent-fg:#16181d; --tc:#9a9a9a; --ok:#4ade80; --err:#f87171; --well:#23272f; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121418; --panel:#1b1e24; --fg:#e7e9ee; --muted:#9aa1ae; --line:#2e333c;
+  --accent:#f0793d; --accent-fg:#16181d; --tc:#9a9a9a; --ok:#4ade80; --err:#f87171; --well:#23272f; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--sans);margin:0}
+.wrap{max-width:60rem;margin:0 auto;padding-inline:16px;padding-block:32px 56px;display:grid;gap:28px}
+header{display:grid;gap:6px}
+.eyebrow{font:500 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font:600 clamp(26px,4vw,34px)/1.15 var(--sans);margin:0;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:62ch}
+.fmt{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fmt figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px 14px;min-width:0}
+.fmt figcaption{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.fmt code{display:block;font:12.5px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word}
+.doc{font:13.5px/1.6 var(--doc)}
+.doc b{font-weight:700}.doc .tc{color:var(--tc)}
+.drop{position:relative;border:1.5px dashed var(--line);border-radius:8px;background:var(--panel);padding:28px 20px;display:grid;justify-items:center;gap:10px;text-align:center;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:var(--well)}
+.drop strong{font-weight:600;font-size:17px}
+.drop span{color:var(--muted);font-size:13.5px}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.drop input:focus-visible + .ring{outline:2px solid var(--accent);outline-offset:3px}
+.ring{position:absolute;inset:0;border-radius:8px;pointer-events:none}
+.opts{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;font-size:13.5px;color:var(--muted)}
+.opts label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.opts input{accent-color:var(--accent);width:16px;height:16px}
+h2{font:600 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+section{display:grid;gap:12px}
+.queue{display:grid;gap:8px;list-style:none;margin:0;padding:0}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:6px;padding:12px 14px}
+.row.ok{border-left-color:var(--ok)}.row.err{border-left-color:var(--err)}
+.row .name{font:500 13.5px/1.35 var(--mono);overflow-wrap:anywhere}
+.row .meta{grid-column:1;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.row.err .meta{color:var(--err)}
+.row .act{grid-row:1/span 2;grid-column:2;display:flex;gap:8px}
+button{font:500 13.5px/1 var(--sans);border-radius:5px;padding:9px 14px;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+button:hover{filter:brightness(1.06)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5;cursor:default}
+.bar{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center}
+.pv{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:6px;min-width:0;display:grid;grid-template-rows:auto 1fr}
+.pane h3{margin:0;padding:10px 14px;border-bottom:1px solid var(--line);font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.pane .body{padding:12px 14px;max-height:26rem;overflow:auto;display:grid;gap:10px;align-content:start}
+.src{font:12px/1.55 var(--mono);display:grid;gap:3px}
+.src div{white-space:pre-wrap;word-break:break-word}
+.src .grp{padding-left:8px;border-left:2px solid var(--line)}
+.src .grp.alt{border-left-color:var(--accent)}
+.tag{font:500 11px/1 var(--mono);padding:3px 6px;border-radius:3px;background:var(--well);color:var(--muted);letter-spacing:.04em}
+.note{color:var(--muted);font-size:13px;margin:0}
+.note code{font-family:var(--mono);font-size:12px}
+@media (max-width:640px){.fmt,.pv{grid-template-columns:1fr}.row{grid-template-columns:1fr}.row .act{grid-row:auto;grid-column:1}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">DOC_01 text · DOC_02 layout</div>
+    <h1>Transcript Formatter</h1>
+    <p>Drop in short-utterance transcripts. Every line keeps its own paragraph and its exact wording. Only the layout changes: speaker in bold, timecode in grey, then the words. Your files never leave this browser.</p>
+  </header>
+
+  <div class="fmt" aria-label="Format reference">
+    <figure>
+      <figcaption>In · one line per utterance</figcaption>
+      <code>01:00:08:00    Transcribed    Contributor 2 - Right, are we rolling?
+01:00:12:20    Transcribed    Contributor 2 - Okay.
+01:00:13:21    Transcribed    Contributor 2 - Let's go from the top.</code>
+    </figure>
+    <figure>
+      <figcaption>Out · same lines, new layout</figcaption>
+      <div class="doc" style="display:grid;gap:8px"><div><b>Contributor 2</b> <span class="tc">[01:00:08]</span> Right, are we rolling?</div><div><b>Contributor 2</b> <span class="tc">[01:00:12]</span> Okay.</div><div><b>Contributor 2</b> <span class="tc">[01:00:13]</span> Let's go from the top.</div></div>
+    </figure>
+  </div>
+
+  <label class="drop" id="drop">
+    <strong>Drop .docx transcripts here</strong>
+    <span>or click to choose. Several files at once is fine.</span>
+    <input type="file" id="picker" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple>
+    <span class="ring"></span>
+  </label>
+
+  <div class="opts">
+    <label><input type="checkbox" id="frames"> Keep frames in the timecode (<code>[01:00:08:00]</code> instead of <code>[01:00:08]</code>)</label>
+  </div>
+
+  <section id="results" hidden>
+    <div class="bar">
+      <h2>Formatted</h2>
+      <button class="primary" id="all" hidden>Download all (.zip)</button>
+    </div>
+    <ul class="queue" id="queue"></ul>
+  </section>
+
+  <section>
+    <div class="bar"><h2 id="pvtitle">Preview</h2><span class="tag" id="pvtag">Example</span></div>
+    <div class="pv">
+      <div class="pane"><h3><span>Source lines</span><span id="pvin"></span></h3><div class="body src" id="pvsrc"></div></div>
+      <div class="pane"><h3><span>Formatted</span><span id="pvout"></span></h3><div class="body doc" id="pvdst"></div></div>
+    </div>
+    <p class="note">Recognised lines look like <code>HH:MM:SS:FF  &lt;label&gt;  &lt;Speaker&gt; - &lt;text&gt;</code> (drop-frame <code>;</code> works too). Title lines above the first timecode are kept. Any other paragraph is kept as it is.</p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* Transcript merge engine.
+ * Turns a line-per-utterance transcript (DOC_01 style):
+ *   01:00:08:00    Transcribed    Contributor 2 - Right, are we rolling?
+ * into speaker-block layout (DOC_02 style):
+ *   [bold]Contributor 2 [/bold][grey][01:00:08] [/grey]Right, are we rolling?
+ * Every source line stays its own paragraph, word for word (default).
+ * Timecode is shown as [HH:MM:SS], or full HH:MM:SS:FF with {frames:true}.
+ * {merge:true} joins consecutive same-speaker lines, as the reference DOC_02 does.
+ * Works on the raw WordprocessingML so every other part of the .docx
+ * (styles, page setup, fonts) passes through untouched.
+ */
+(function (root) {
+  // groups: 1 full timecode, 2 HH:MM:SS, 3 speaker, 4 text
+  var LINE_RX = /^((\d{1,2}:\d{2}:\d{2})[:;.]\d{2,3})\s+\S+\s+(.+?)\s+-\s?(.*)$/;
+  var PARA_RX = /<w:p(?:\s[^>]*)?\/>|<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g;
+  var TOKEN_RX = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\/>|<w:br\/>|<w:t(?:\s[^>]*)?\/>/g;
+  var DEFAULT_FONTS = '<w:rFonts w:ascii="Helvetica" w:cs="Helvetica" w:eastAsia="Helvetica" w:hAnsi="Helvetica"/>';
+
+  function decode(s) {
+    return s.replace(/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi, function (m, e) {
+      var k = e.toLowerCase();
+      if (k === 'amp') return '&'; if (k === 'lt') return '<'; if (k === 'gt') return '>';
+      if (k === 'quot') return '"'; if (k === 'apos') return "'";
+      return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+    });
+  }
+  function encode(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  }
+  function paraText(xml) {
+    var out = '', m;
+    TOKEN_RX.lastIndex = 0;
+    while ((m = TOKEN_RX.exec(xml))) {
+      if (m[0] === '<w:tab/>') out += '\t';
+      else if (m[0] === '<w:br/>') out += '\n';
+      else if (m[1] !== undefined) out += decode(m[1]);
+    }
+    return out;
+  }
+  function run(fonts, extra, text, br) {
+    return '<w:r><w:rPr>' + extra + fonts + '</w:rPr>' + (br ? '<w:br/>' : '') +
+      '<w:t xml:space="preserve">' + encode(text) + '</w:t></w:r>';
+  }
+  // Joins a speaker's lines. Lines without closing punctuation get a full stop,
+  // which is what DOC_02 does (it even turns "there," into "there,.").
+  function joinLines(lines, tidy) {
+    return lines.map(function (s, i) {
+      s = s.trim();
+      if (i < lines.length - 1 && !/[.?!]$/.test(s)) {
+        if (tidy && /[,;:—-]$/.test(s)) s = s.replace(/[,;:—-]+$/, '');
+        s += '.';
+      }
+      return s;
+    }).join(' ');
+  }
+
+  /**
+   * @param {string} xml  word/document.xml
+   * @param {{merge?: boolean, frames?: boolean, tidyJoins?: boolean}} opts
+   * @returns {{xml: string, stats: {lines:number, blocks:number, speakers:string[], passthrough:number}, preview: Array}}
+   */
+  function convertDocumentXml(xml, opts) {
+    opts = opts || {};
+    var bodyStart = xml.indexOf('<w:body>');
+    var sect = xml.lastIndexOf('<w:sectPr');
+    var bodyEnd = xml.lastIndexOf('</w:body>');
+    if (bodyStart < 0 || bodyEnd < 0) throw new Error('This file has no document body. Is it a Word .docx?');
+    bodyStart += '<w:body>'.length;
+    var contentEnd = sect > bodyStart ? sect : bodyEnd;
+    var body = xml.slice(bodyStart, contentEnd);
+
+    // Tokenise body into paragraphs and anything in between (kept verbatim).
+    var items = [], last = 0, m;
+    PARA_RX.lastIndex = 0;
+    while ((m = PARA_RX.exec(body))) {
+      if (m.index > last) items.push({ raw: body.slice(last, m.index), para: false });
+      var t = paraText(m[0]);
+      items.push({ raw: m[0], para: true, text: t, line: LINE_RX.exec(t.trim()) });
+      last = m.index + m[0].length;
+    }
+    if (last < body.length) items.push({ raw: body.slice(last), para: false });
+
+    var first = -1;
+    for (var i = 0; i < items.length; i++) if (items[i].para && items[i].line) { first = i; break; }
+    if (first < 0) throw new Error('No transcript lines found. Expected lines like "01:00:07:05    Transcribed    Contributor 1 - text".');
+
+    // Header: everything before the first transcript line, minus trailing blank paragraphs.
+    var head = items.slice(0, first);
+    while (head.length && head[head.length - 1].para && !head[head.length - 1].text.trim()) head.pop();
+
+    var fontsMatch = /<w:rFonts[^>]*\/>/.exec(items[first].raw);
+    var fonts = fontsMatch ? fontsMatch[0] : DEFAULT_FONTS;
+
+    var out = head.map(function (h) { return h.raw; });
+    var blocks = [], cur = null, lines = 0, passthrough = 0, speakers = {};
+    function flush() {
+      if (!cur) return;
+      var text = joinLines(cur.lines, opts.tidyJoins);
+      out.push('<w:p>' +
+        run(fonts, '<w:b/><w:bCs/>', cur.speaker + ' ', true) +
+        run(fonts, '<w:color w:val="777777"/>', '[' + cur.tc + '] ', false) +
+        run(fonts, '', text, false) + '</w:p>');
+      blocks.push({ speaker: cur.speaker, tc: cur.tc, text: text, count: cur.lines.length });
+      cur = null;
+    }
+    for (var j = first; j < items.length; j++) {
+      var it = items[j];
+      if (!it.para) { flush(); out.push(it.raw); continue; }
+      if (it.line) {
+        lines++;
+        var tc = opts.frames ? it.line[1] : it.line[2];
+        if (/^\d:/.test(tc)) tc = '0' + tc;
+        var spk = it.line[3].trim();
+        speakers[spk] = (speakers[spk] || 0) + 1;
+        if (opts.merge && cur && cur.speaker === spk) cur.lines.push(it.line[4]);
+        else { flush(); cur = { speaker: spk, tc: tc, lines: [it.line[4]] }; }
+      } else if (it.text.trim()) {
+        flush(); out.push(it.raw); passthrough++;
+      }
+      // blank paragraphs inside the transcript are dropped, as in DOC_02
+    }
+    flush();
+
+    return {
+      xml: xml.slice(0, bodyStart) + out.join('') + xml.slice(contentEnd),
+      stats: { lines: lines, blocks: blocks.length, speakers: Object.keys(speakers).sort(), passthrough: passthrough },
+      blocks: blocks,
+      header: head.filter(function (h) { return h.para; }).map(function (h) { return h.text; })
+    };
+  }
+
+  /** Converts a .docx (ArrayBuffer/Blob) with JSZip. Returns {blob, stats, blocks, header}. */
+  function convertDocx(JSZip, data, opts) {
+    return JSZip.loadAsync(data).then(function (zip) {
+      var f = zip.file('word/document.xml');
+      if (!f) throw new Error('This file is not a Word .docx (no word/document.xml inside).');
+      return f.async('string').then(function (xml) {
+        var r = convertDocumentXml(xml, opts);
+        zip.file('word/document.xml', r.xml);
+        var type = (typeof Blob !== 'undefined' && !(opts && opts.nodebuffer)) ? 'blob' : 'nodebuffer';
+        return zip.generateAsync({
+          type: type, compression: 'DEFLATE',
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        }).then(function (out) { r.file = out; delete r.xml; return r; });
+      });
+    });
+  }
+
+  function outputName(name) {
+    var base = name.replace(/\.docx$/i, '');
+    return base + '_FORMATTED.docx';
+  }
+
+  var api = { convertDocumentXml: convertDocumentXml, convertDocx: convertDocx, outputName: outputName, joinLines: joinLines };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.TranscriptMerge = api;
+})(this);
+
+</script>
+<script>
+(function(){
+  var TM = window.TranscriptMerge;
+  var $ = function(id){ return document.getElementById(id); };
+  var results = []; // {name, outName, file, stats, blocks}
+  var dlPromise = (window.claude && window.claude.use) ? window.claude.use('downloads').catch(function(){ return null; }) : Promise.resolve(null);
+
+  function browserSave(name, blob){
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 4000);
+  }
+  function save(name, blob){
+    return dlPromise.then(function(dl){
+      if (!dl) { browserSave(name, blob); return; }
+      return dl.save({ filename: name, data: blob }).catch(function(e){
+        if (e && e.code === 'declined') return;
+        if (e && e.code === 'rate_limited') return;
+        browserSave(name, blob);
+      });
+    });
+  }
+
+  function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  function renderPreview(title, isExample, header, blocks, srcLines){
+    $('pvtitle').textContent = title; $('pvtag').hidden = !isExample;
+    var src = $('pvsrc'), dst = $('pvdst'); src.textContent = ''; dst.textContent = '';
+    header.forEach(function(h){ if (h.trim()) { src.appendChild(el('div', null, h)); dst.appendChild(el('div', null, h)); } });
+    var shown = blocks.slice(0, 40), k = 0;
+    shown.forEach(function(b, i){
+      var g = el('div', 'grp');
+      srcLines.slice(k, k + b.count).forEach(function(l){ g.appendChild(el('div', null, l)); });
+      k += b.count; src.appendChild(g);
+      var p = el('div'); p.appendChild(el('b', null, b.speaker)); p.appendChild(document.createTextNode(' '));
+      p.appendChild(el('span', 'tc', '[' + b.tc + ']')); p.appendChild(document.createTextNode(' ' + b.text));
+      dst.appendChild(p);
+    });
+    $('pvin').textContent = k + ' lines'; $('pvout').textContent = shown.length + ' lines' + (blocks.length > shown.length ? ' of ' + blocks.length : '');
+  }
+
+  // Example preview so the page shows what it does before anything is dropped.
+  (function example(){
+    var lines = [
+      '01:00:04:12    Transcribed    Contributor 1 - Morning. Is this the right room?',
+      '01:00:06:03    Transcribed    Contributor 2 - It is, yeah. Come in.',
+      '01:00:07:20    Transcribed    Contributor 2 - Grab a seat anywhere.',
+      "01:00:10:08    Transcribed    Contributor 1 - Thanks. I wasn't sure if I'd missed the start.",
+      '01:00:14:15    Transcribed    Contributor 2 - No, no. We\'re still waiting on a couple of people.',
+      '01:00:18:01    Transcribed    Contributor 3 - Sorry, sorry. Traffic.',
+      '01:00:20:22    Transcribed    Contributor 2 - You\'re fine.',
+      '01:00:22:10    Transcribed    Contributor 2 - Right, shall we get going?'
+    ];
+    function enc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,'&apos;'); }
+    var xml = '<w:document><w:body>' + ['Example Episode','','EXAMPLE_CARD_A01',''].concat(lines).map(function(t){
+      return '<w:p><w:r><w:t xml:space="preserve">' + enc(t) + '</w:t></w:r></w:p>'; }).join('') + '</w:body></w:document>';
+    function draw(){ var r = TM.convertDocumentXml(xml, { frames: $('frames').checked }); renderPreview('Preview', true, r.header, r.blocks, lines); }
+    draw(); window.__drawExample = draw;
+  })();
+
+  function srcLinesOf(file){
+    return JSZip.loadAsync(file).then(function(z){ return z.file('word/document.xml').async('string'); }).then(function(xml){
+      var out = [], rx = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, m;
+      while ((m = rx.exec(xml))) {
+        var t = ''; m[0].replace(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g, function(_, s){ t += s; });
+        t = t.replace(/&apos;/g,"'").replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+        if (/^\d{1,2}:\d{2}:\d{2}[:;.]\d{2,3}\s/.test(t.trim())) out.push(t.trim());
+      }
+      return out;
+    });
+  }
+
+  function addRow(item){
+    var li = el('li', 'row ' + (item.error ? 'err' : 'ok'));
+    li.appendChild(el('div', 'name', item.error ? item.name : item.outName));
+    var meta = item.error ? item.error :
+      item.stats.lines + ' lines formatted · ' + item.stats.speakers.length + ' speaker' + (item.stats.speakers.length === 1 ? '' : 's') +
+      (item.stats.passthrough ? ' · ' + item.stats.passthrough + ' other paragraph' + (item.stats.passthrough === 1 ? '' : 's') + ' kept' : '');
+    li.appendChild(el('div', 'meta', meta));
+    if (!item.error) {
+      var act = el('div', 'act');
+      var pv = el('button', null, 'Preview'); pv.type = 'button';
+      pv.onclick = function(){ showFile(item); };
+      var dl = el('button', 'primary', 'Download'); dl.type = 'button';
+      dl.onclick = function(){ save(item.outName, item.file); };
+      act.appendChild(pv); act.appendChild(dl); li.appendChild(act);
+    }
+    $('queue').appendChild(li);
+  }
+  function showFile(item){
+    srcLinesOf(item.source).then(function(lines){ renderPreview(item.outName, false, item.header, item.blocks, lines); });
+  }
+
+  function handle(files){
+    files = Array.prototype.filter.call(files, function(f){ return /\.docx$/i.test(f.name); });
+    if (!files.length) return;
+    $('results').hidden = false;
+    var frames = $('frames').checked;
+    files.reduce(function(p, f){
+      return p.then(function(){
+        return TM.convertDocx(JSZip, f, { frames: frames }).then(function(r){
+          var item = { name: f.name, outName: TM.outputName(f.name), file: r.file, stats: r.stats, blocks: r.blocks, header: r.header, source: f };
+          results.push(item); addRow(item);
+          if (results.length === 1) showFile(item);
+        }).catch(function(e){ addRow({ name: f.name, error: (e && e.message) || 'Could not read this file.' }); });
+      });
+    }, Promise.resolve()).then(function(){ $('all').hidden = results.length < 2; });
+  }
+
+  $('picker').addEventListener('change', function(e){ handle(e.target.files); e.target.value = ''; });
+  var drop = $('drop');
+  ['dragenter','dragover'].forEach(function(t){ drop.addEventListener(t, function(e){ e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave','drop'].forEach(function(t){ drop.addEventListener(t, function(){ drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function(e){ e.preventDefault(); handle(e.dataTransfer.files); });
+  $('frames').addEventListener('change', function(){ if (!results.length) window.__drawExample(); });
+
+  $('all').onclick = function(){
+    var z = new JSZip();
+    results.forEach(function(r){ z.file(r.outName, r.file); });
+    z.generateAsync({ type: 'blob' }).then(function(b){ save('transcripts_FORMATTED.zip', b); });
+  };
+})();
+</script>
+
+</body>
+</html>
